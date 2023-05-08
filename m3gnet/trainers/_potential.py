@@ -213,6 +213,7 @@ class PotentialTrainer:
             name_temp = (dir_name + "/{epoch:05d}-{val_MAE:.6f}-"
                 "{val_MAE(E):.6f}-{val_MAE(F):.6f}"
             )
+            log_dir = "logs/batch" + datetime.now().strftime("%Y%m%d-%H%M%S") + '/train'
             if has_stress:
                 name_temp += "-{val_MAE(S):.6f}"
             callbacks.append(
@@ -224,7 +225,10 @@ class PotentialTrainer:
                     mode="min",
                 )
             )
-
+            # Custom line for adding tensorboard to callbacks
+            callbacks.append(
+                    tf.keras.callbacks.TensorBoard(log_dir=log_dir)
+            )
         if early_stop_patience:
             callbacks.append(
                 tf.keras.callbacks.EarlyStopping(monitor="val_MAE", patience=200)
