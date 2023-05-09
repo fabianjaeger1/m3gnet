@@ -5,6 +5,10 @@ from typing import List, Optional
 import numpy as np
 import json
 import tensorflow as tf
+
+# importing HPparams logging
+from tensorboard.plugins.hparams import api as hp
+
 from ase import Atoms
 from pymatgen.core import Structure, Molecule
 import datetime
@@ -17,8 +21,63 @@ from m3gnet.graph import MaterialGraphBatchEnergyForceStress
 from m3gnet.layers import AtomRef
 from m3gnet.models import Potential
 
+import tensorflow as tf
+#from tf.keras.callbacks import TensorBoard
+
+class ModifiedTensorBoard(tf.keras.callbacks.TensorBoard):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.step = 1
+        self.writer = tf.summary.create_file_writer(self.log_dir)
+        self._log_write_dir = self.log_dir
+
+    def set_model(self, model):
+        self.model = model
+
+        self._train_dir = self._log_write_dir
+        #self._train_dir = os.path.join(self._log_write_dir, 'train')
+        self._train_step = self.model._train_counter
+
+        self._val_dir = os.path.join(self._log_write_dir, 'validation')
+        self._val_step = self.model._test_counter
+
+        self._should_write_train_graph = False
+
+    def on_epoch_end(self, epoch, logs=None):
+        print("Calling tensorboard on epoch end")
+        self.update_stats(epoch,**logs)
+
+    def on_batch_end(self, batch, logs=None):
+        pass
+
+    def on_train_end(self, _):
+        pass
+
+    def update_stats(self, epoch, **stats):
+        #self.writer = tf.summary.create_file_writer("{}/epoch_{}".format(self.log_dir, epoch))
+        #stats['epoch']=epoch
+        with self.writer.as_default():
+            for key, value in stats.items():
+                print("key: {}, values: {}".format(key, value)) 
+                tf.summary.scalar(key, value, step = epoch)
+                self.writer.flush()
 
 class PotentialTrainer:
+
+#
+#    HP_BATCH_SIZE = hp.HParam('batch_size', hp.Discrete([128, 256]))
+#    HP_LEARNING_RATE = hp.HParam('learning_rate',hp.Discrete([1e-3,1e-4]))
+#
+#    METRIC_ACCURACY_FORCE = 'MAE FORCE VAL'
+#    METRIC_ACCURACY_STRESS = 'MAE STRESS VAL'
+#    METRIC_ACCURACY_ENERGY = 'MAE ENERGY VAL'
+#
+#    with tf.summary.create_file_writer('tb_logs/hparam_tuning').as_default():
+#        hp.hparams_config(
+#                hparams = [HP_BATCH_SIZE, HP_LEARNING_RATE]
+#                metrics = [hp.Metric(METRIC_ACCURACY_FORCE, display_name = 'MAE(F)'), hp.Metric(METRIC_ACCURACY_ENERGY, display_name = 'MAE(E)'), hp.Metric(METRIC_ACCURACY_STRESS, display_name = 'MAE(S)')]
+#                )
     """
     Trainer for M3GNet potential
     """
@@ -52,6 +111,7 @@ class PotentialTrainer:
         verbose: int = 1,
         fit_per_element_offset: bool = False,
         data_dir = '',
+        hparams,
     ):
         """
         Args:
@@ -140,18 +200,18 @@ class PotentialTrainer:
             
             mask2d = tf.constant(np.array([[1,1,0],[1,1,0],[0,0,0]]))
             mask2d = tf.cast(mask2d, tf.float32)
-            print("mask2d: {}".format(mask2d))
-            print("X: {}".format(x))
-            print("Y: {}".format(y))
+            #print("mask2d: {}".format(mask2d))
+            #print("X: {}".format(x))
+            #print("Y: {}".format(y))
             
             mulx = x*mask2d
             muly = y*mask2d
 
-            print("Mul x: {}".format(mulx))
-            print("Mul y: {}".format(muly))
+            #print("Mul x: {}".format(mulx))
+            #print("Mul y: {}".format(muly))
 
-            print("Type y: {}".format(type(mulx)))
-            print("Type x: {}".format(type(muly)))
+            #print("Type y: {}".format(type(mulx)))
+            #print("Type x: {}".format(type(muly)))
           
             return loss(mulx, muly) 
            # return loss(tf.math.mul(x, mask2d), tf.math.mul(y, mask2d)) 
@@ -203,17 +263,25 @@ class PotentialTrainer:
         dir_name = "checkpoints/"+str(N_GPU)+"_f_t-{date:%Y-%m-%d_%H-%M-%S}".format(date=datetime.datetime.now())
         print(dir_name)
         os.makedirs(dir_name)
-        #print(os.getcwd())
+        
+        #log_dir = "logs/epoch" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        
+        log_dir = "tb_logs/run" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        print("Tensboard log directory: {}".format(log_dir))
+        os.makedirs(log_dir)
+            
+        # Create TensorBoard Instance 
+        tb_instance = ModifiedTensorBoard(log_dir=log_dir)
+        tb_instance.set_model(self.potential.model)
+        callbacks.append(tb_instance)
 
         with open(dir_name+'/train_conf.json', 'w') as log:
             log.write(json.dumps({'batch_size':batch_size, 'force_loss_ratio':force_loss_ratio, 'stress_loss_ratio':stress_loss_ratio, 'early_stop_patience':early_stop_patience, 'fit_per_element_offset':fit_per_element_offset, 'data_dir':data_dir}))
           
-        # json.dump({'batch_size':batch_size, 'force_loss_ratio':force_loss_ratio, 'stress_loss_ratio':stress_loss_ratio, 'early_stop_patience':early_stop_patience, 'fit_per_element_offset':fit_per_element_offset, 'data_dir':data_dir},  open(dir_name+'/train_conf.json'))
         if has_validation and save_checkpoint:
             name_temp = (dir_name + "/{epoch:05d}-{val_MAE:.6f}-"
                 "{val_MAE(E):.6f}-{val_MAE(F):.6f}"
             )
-            log_dir = "logs/batch" + datetime.now().strftime("%Y%m%d-%H%M%S") + '/train'
             if has_stress:
                 name_temp += "-{val_MAE(S):.6f}"
             callbacks.append(
@@ -221,13 +289,9 @@ class PotentialTrainer:
                     filepath=name_temp,
                     monitor="val_MAE",
                     save_weights_only=False,
-#                    save_best_only=True,
+                    #save_best_only=True,
                     mode="min",
                 )
-            )
-            # Custom line for adding tensorboard to callbacks
-            callbacks.append(
-                    tf.keras.callbacks.TensorBoard(log_dir=log_dir)
             )
         if early_stop_patience:
             callbacks.append(
