@@ -44,6 +44,14 @@ class ModifiedTensorBoard(tf.keras.callbacks.TensorBoard):
 
         self._should_write_train_graph = False
 
+    def log_hp(self, hp_logs):
+        self.update_stats(1,**{str(k):v for k,v in hp_logs.items()})
+        #with self.writer.as_default():
+        #    for key, value in hp_logs.items():
+        #        print("key:{}, values: {}".format(key, value))
+        #        tf.summary.scalar(key, value, step = 0)
+        #        self.writer.flush()
+            
     def on_epoch_end(self, epoch, logs=None):
         print("Calling tensorboard on epoch end")
         self.update_stats(epoch,**logs)
@@ -63,21 +71,9 @@ class ModifiedTensorBoard(tf.keras.callbacks.TensorBoard):
                 tf.summary.scalar(key, value, step = epoch)
                 self.writer.flush()
 
-class PotentialTrainer:
+        #writer_hp = tf.summary.create_file_writer(self
 
-#
-#    HP_BATCH_SIZE = hp.HParam('batch_size', hp.Discrete([128, 256]))
-#    HP_LEARNING_RATE = hp.HParam('learning_rate',hp.Discrete([1e-3,1e-4]))
-#
-#    METRIC_ACCURACY_FORCE = 'MAE FORCE VAL'
-#    METRIC_ACCURACY_STRESS = 'MAE STRESS VAL'
-#    METRIC_ACCURACY_ENERGY = 'MAE ENERGY VAL'
-#
-#    with tf.summary.create_file_writer('tb_logs/hparam_tuning').as_default():
-#        hp.hparams_config(
-#                hparams = [HP_BATCH_SIZE, HP_LEARNING_RATE]
-#                metrics = [hp.Metric(METRIC_ACCURACY_FORCE, display_name = 'MAE(F)'), hp.Metric(METRIC_ACCURACY_ENERGY, display_name = 'MAE(E)'), hp.Metric(METRIC_ACCURACY_STRESS, display_name = 'MAE(S)')]
-#                )
+class PotentialTrainer:
     """
     Trainer for M3GNet potential
     """
@@ -111,7 +107,7 @@ class PotentialTrainer:
         verbose: int = 1,
         fit_per_element_offset: bool = False,
         data_dir = '',
-        hparams,
+        hparams: dict = {},
     ):
         """
         Args:
@@ -274,7 +270,7 @@ class PotentialTrainer:
         tb_instance = ModifiedTensorBoard(log_dir=log_dir)
         tb_instance.set_model(self.potential.model)
         callbacks.append(tb_instance)
-
+        
         with open(dir_name+'/train_conf.json', 'w') as log:
             log.write(json.dumps({'batch_size':batch_size, 'force_loss_ratio':force_loss_ratio, 'stress_loss_ratio':stress_loss_ratio, 'early_stop_patience':early_stop_patience, 'fit_per_element_offset':fit_per_element_offset, 'data_dir':data_dir}))
           
@@ -346,6 +342,8 @@ class PotentialTrainer:
                 callback_list.on_batch_end(batch=batch_index, logs=logs)
 
             epoch_logs = {
+                "batch_size": hparams['batch_size'],
+                "learning_rate" : hparams['learning_rate'],
                 "loss": epoch_loss_avg.result().numpy(),
                 "MAE(E)": emae_avg.result().numpy(),
                 "MAE(F)": fmae_avg.result().numpy(),
@@ -379,9 +377,9 @@ class PotentialTrainer:
                     "val_MAE(S)": smae_avg.result().numpy(),
                 }
             )
-
+            
             callback_list.on_epoch_end(epoch=epoch, logs=epoch_logs)
             mgb.on_epoch_end()
-
+            
             if getattr(self.potential.model, "stop_training", False):
                 break
