@@ -298,7 +298,7 @@ class M3GNet(GraphModelMixin, tf.keras.models.Model):
         """
         return cls(**config)
 
-    def save(self, dirname: str):
+    def save(self, dirname: str, overwrite=True,options=[]):
         """
         Saves the model to a directory.
 

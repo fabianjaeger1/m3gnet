@@ -5,6 +5,10 @@ from typing import List, Optional
 import numpy as np
 import json
 import tensorflow as tf
+
+# importing HPparams logging
+from tensorboard.plugins.hparams import api as hp
+
 from ase import Atoms
 from pymatgen.core import Structure, Molecule
 import datetime
@@ -31,7 +35,8 @@ class ModifiedTensorBoard(tf.keras.callbacks.TensorBoard):
     def set_model(self, model):
         self.model = model
 
-        self._train_dir = os.path.join(self._log_write_dir, 'train')
+        self._train_dir = self._log_write_dir
+        #self._train_dir = os.path.join(self._log_write_dir, 'train')
         self._train_step = self.model._train_counter
 
         self._val_dir = os.path.join(self._log_write_dir, 'validation')
@@ -39,6 +44,13 @@ class ModifiedTensorBoard(tf.keras.callbacks.TensorBoard):
 
         self._should_write_train_graph = False
 
+    def log_hp(self, hp_logs):
+        self.update_stats(1,**{str(k):v for k,v in hp_logs.items()})
+        #with self.writer.as_default():
+        #    for key, value in hp_logs.items():
+        #        print("key:{}, values: {}".format(key, value))
+        #        tf.summary.scalar(key, value, step = 0)
+        #        self.writer.flush()
     def on_epoch_end(self, epoch, logs=None):
         print("Calling tensorboard on epoch end")
         self.update_stats(epoch,**logs)
@@ -92,7 +104,8 @@ class PotentialTrainer:
         early_stop_patience: int = 200,
         verbose: int = 1,
         fit_per_element_offset: bool = False,
-        data_dir="",
+        data_dir = '',
+        hparams: dict = {},
     ):
         """
         Args:
@@ -173,23 +186,22 @@ class PotentialTrainer:
         def _flat_loss_stress(x, y):
             mask2d = tf.constant(np.array([[1, 1, 0], [1, 1, 0], [0, 0, 0]]))
             mask2d = tf.cast(mask2d, tf.float32)
-            print(f"mask2d: {mask2d}")
-            print(f"X: {x}")
-            print(f"Y: {y}")
+            #print("mask2d: {}".format(mask2d))
+            #print("X: {}".format(x))
+            #print("Y: {}".format(y))
+            
+            mulx = x*mask2d
+            muly = y*mask2d
 
-            mulx = x * mask2d
-            muly = y * mask2d
+            #print("Mul x: {}".format(mulx))
+            #print("Mul y: {}".format(muly))
 
-            print(f"Mul x: {mulx}")
-            print(f"Mul y: {muly}")
-
-            print(f"Type y: {type(mulx)}")
-            print(f"Type x: {type(muly)}")
-
-            return loss(mulx, muly)
-
-        # return loss(tf.math.mul(x, mask2d), tf.math.mul(y, mask2d))
-
+            #print("Type y: {}".format(type(mulx)))
+            #print("Type x: {}".format(type(muly)))
+          
+            return loss(mulx, muly) 
+           # return loss(tf.math.mul(x, mask2d), tf.math.mul(y, mask2d)) 
+        
         def _mae(x, y):
             x = tf.reshape(x, tf.shape(y))
             return tf.reduce_mean(tf.math.abs(x - y))
@@ -247,12 +259,14 @@ class PotentialTrainer:
         tb_instance = ModifiedTensorBoard(log_dir=log_dir)
         tb_instance.set_model(self.potential.model)
         callbacks.append(tb_instance)
-
+        
         with open(dir_name+'/train_conf.json', 'w') as log:
             log.write(json.dumps({'batch_size':batch_size, 'force_loss_ratio':force_loss_ratio, 'stress_loss_ratio':stress_loss_ratio, 'early_stop_patience':early_stop_patience, 'fit_per_element_offset':fit_per_element_offset, 'data_dir':data_dir}))
           
         if has_validation and save_checkpoint:
-            name_temp = dir_name + "/{epoch:05d}-{val_MAE:.6f}-" "{val_MAE(E):.6f}-{val_MAE(F):.6f}"
+            name_temp = (dir_name + "/{epoch:05d}-{val_MAE:.6f}-"
+                "{val_MAE(E):.6f}-{val_MAE(F):.6f}"
+            )
             if has_stress:
                 name_temp += "-{val_MAE(S):.6f}"
             callbacks.append(
@@ -308,6 +322,8 @@ class PotentialTrainer:
                 callback_list.on_batch_end(batch=batch_index, logs=logs)
 
             epoch_logs = {
+                "batch_size": hparams['batch_size'],
+                "learning_rate" : hparams['learning_rate'],
                 "loss": epoch_loss_avg.result().numpy(),
                 "MAE(E)": emae_avg.result().numpy(),
                 "MAE(F)": fmae_avg.result().numpy(),
@@ -341,9 +357,9 @@ class PotentialTrainer:
                     "val_MAE(S)": smae_avg.result().numpy(),
                 }
             )
-
+            
             callback_list.on_epoch_end(epoch=epoch, logs=epoch_logs)
             mgb.on_epoch_end()
-
+            
             if getattr(self.potential.model, "stop_training", False):
                 break
