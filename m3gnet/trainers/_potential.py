@@ -51,7 +51,6 @@ class ModifiedTensorBoard(tf.keras.callbacks.TensorBoard):
         #        print("key:{}, values: {}".format(key, value))
         #        tf.summary.scalar(key, value, step = 0)
         #        self.writer.flush()
-            
     def on_epoch_end(self, epoch, logs=None):
         print("Calling tensorboard on epoch end")
         self.update_stats(epoch,**logs)
@@ -71,12 +70,11 @@ class ModifiedTensorBoard(tf.keras.callbacks.TensorBoard):
                 tf.summary.scalar(key, value, step = epoch)
                 self.writer.flush()
 
-        #writer_hp = tf.summary.create_file_writer(self
-
 class PotentialTrainer:
     """
     Trainer for M3GNet potential
     """
+
     def __init__(self, potential: Potential, optimizer: tf.keras.optimizers.Optimizer):
         """
         Args:
@@ -143,9 +141,7 @@ class PotentialTrainer:
         if isinstance(graphs_or_structures[0], MaterialGraph):
             graphs = graphs_or_structures
         elif isinstance(graphs_or_structures[0], (Structure, Molecule, Atoms)):
-            graphs = [
-                self.potential.model.graph_converter(i) for i in graphs_or_structures
-            ]
+            graphs = [self.potential.model.graph_converter(i) for i in graphs_or_structures]
         else:
             raise ValueError("Graph types not recognized")
 
@@ -166,13 +162,8 @@ class PotentialTrainer:
             has_validation = True
             if isinstance(validation_graphs_or_structures[0], MaterialGraph):
                 validation_graphs = validation_graphs_or_structures
-            elif isinstance(
-                validation_graphs_or_structures[0], (Structure, Molecule, Atoms)
-            ):
-                validation_graphs = [
-                    self.potential.model.graph_converter(i)
-                    for i in validation_graphs_or_structures
-                ]
+            elif isinstance(validation_graphs_or_structures[0], (Structure, Molecule, Atoms)):
+                validation_graphs = [self.potential.model.graph_converter(i) for i in validation_graphs_or_structures]
             else:
                 raise ValueError("Graph types not recognized")
 
@@ -191,10 +182,9 @@ class PotentialTrainer:
 
         def _flat_loss(x, y):
             return loss(tf.reshape(x, (-1,)), tf.reshape(y, (-1,)))
-        
+
         def _flat_loss_stress(x, y):
-            
-            mask2d = tf.constant(np.array([[1,1,0],[1,1,0],[0,0,0]]))
+            mask2d = tf.constant(np.array([[1, 1, 0], [1, 1, 0], [0, 0, 0]]))
             mask2d = tf.cast(mask2d, tf.float32)
             #print("mask2d: {}".format(mask2d))
             #print("X: {}".format(x))
@@ -231,14 +221,14 @@ class PotentialTrainer:
             if has_stress:
                 # Changed _flat_loss to _flat_loss_stress to accomodate the 2d mask
                 s_loss = _flat_loss_stress(target_batch[2], graph_pred_batch[2])
-                #s_loss = _flat_loss(target_batch[2], graph_pred_batch[2])
-                
-                mask2d = tf.constant([[1,1,0], [1,1,0], [0,0,0]])
+                # s_loss = _flat_loss(target_batch[2], graph_pred_batch[2])
+
+                mask2d = tf.constant([[1, 1, 0], [1, 1, 0], [0, 0, 0]])
                 mask2d = tf.cast(mask2d, tf.float32)
-                #print(type(target_batch[2]))
-                s_metric = _mae(target_batch[2]*mask2d, graph_pred_batch[2]*mask2d)
-                #s_metric = _mae(tf.math.mul(target_batch[2], mask_2d), tf.math.mul(graph_pred_batch[2], mask_2d))
-                #s_metric = _mae(target_batch[2], graph_pred_batch[2])
+                # print(type(target_batch[2]))
+                s_metric = _mae(target_batch[2] * mask2d, graph_pred_batch[2] * mask2d)
+                # s_metric = _mae(tf.math.mul(target_batch[2], mask_2d), tf.math.mul(graph_pred_batch[2], mask_2d))
+                # s_metric = _mae(target_batch[2], graph_pred_batch[2])
             return (
                 e_loss + force_loss_ratio * f_loss + stress_loss_ratio * s_loss,
                 e_metric,
@@ -255,11 +245,10 @@ class PotentialTrainer:
             callbacks.append(pbar)
 
         callbacks.append(ManualStop())
-        N_GPU = os.getenv('CUDA_VISIBLE_DEVICES')
-        dir_name = "checkpoints/"+str(N_GPU)+"_f_t-{date:%Y-%m-%d_%H-%M-%S}".format(date=datetime.datetime.now())
+        N_GPU = os.getenv("CUDA_VISIBLE_DEVICES")
+        dir_name = "checkpoints/" + str(N_GPU) + f"_f_t-{datetime.datetime.now():%Y-%m-%d_%H-%M-%S}"
         print(dir_name)
         os.makedirs(dir_name)
-        
         #log_dir = "logs/epoch" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         
         log_dir = "tb_logs/run" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -285,14 +274,11 @@ class PotentialTrainer:
                     filepath=name_temp,
                     monitor="val_MAE",
                     save_weights_only=False,
-                    #save_best_only=True,
                     mode="min",
                 )
             )
         if early_stop_patience:
-            callbacks.append(
-                tf.keras.callbacks.EarlyStopping(monitor="val_MAE", patience=200)
-            )
+            callbacks.append(tf.keras.callbacks.EarlyStopping(monitor="val_MAE", patience=200))
 
         callback_list = tf.keras.callbacks.CallbackList(callbacks)
         callback_list.on_train_begin()
@@ -302,14 +288,10 @@ class PotentialTrainer:
         def train_one_step(potential, graph_list, target_list):
             with tf.GradientTape() as tape:
                 if has_stress:
-                    pred_list = potential.get_efs_tensor(
-                        graph_list, include_stresses=True
-                    )
+                    pred_list = potential.get_efs_tensor(graph_list, include_stresses=True)
                 else:
                     pred_list = potential.get_ef_tensor(graph_list)
-                loss_val, emae, fmae, smae = _loss(
-                    target_list, pred_list, graph_list[Index.N_ATOMS]
-                )
+                loss_val, emae, fmae, smae = _loss(target_list, pred_list, graph_list[Index.N_ATOMS])
             grads = tape.gradient(loss_val, potential.model.trainable_variables)
             return loss_val, grads, pred_list, emae, fmae, smae
 
@@ -326,9 +308,7 @@ class PotentialTrainer:
                     self.potential, graph_batch.as_tf().as_list(), target_batch
                 )
 
-                self.optimizer.apply_gradients(
-                    zip(grads, self.potential.trainable_variables)
-                )
+                self.optimizer.apply_gradients(zip(grads, self.potential.trainable_variables))
                 epoch_loss_avg.update_state(lossval)
                 emae_avg.update_state(emae)
                 fmae_avg.update_state(fmae)
